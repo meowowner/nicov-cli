@@ -402,7 +402,7 @@ if [ $hist_result == 0 ]; then
 printf "${yellow}Continue[c]?\n${red}Quit[q]?\n${magenta}"
 read -p "> " hist_opt
 case $hist_opt in
-	c) return 0
+	c) cleaning && return 0
 	;;
 	q) bye
 	;;
@@ -472,6 +472,7 @@ quest=${quest// /%20}
 #curl -s "https://www.nicovideo.jp/search/$quest?ref=" -L | grep "data-original=\"https:\/\/nicovideo.cdn.nimg.jp\/thumbnails\/" | sed "s/.*data-original=\"https:\/\/nicovideo.cdn.nimg.jp\/thumbnails\//[/g; s/\/.*alt=/]  -  /g; s/\" data-thumbnail.*/\"/g" #; s/.*watch.*//g"
 if [ $search_result == 0 ]; then
 search1
+cleaning
 else
 curl -s "https://www.nicovideo.jp/search/$quest?ref=" | grep "<a title=" | sed "s/.*title=\"/\"/; s/href=\"\/watch\//[/; s/\" data-href.*/]/" && divider
 fi
@@ -516,7 +517,6 @@ case $p in
 	###echo $x
 	;;
 esac
-cleaning
 rm $file_tmp
 address_type $r
 url_check
