@@ -1,5 +1,5 @@
 # nicov-cli
-Cli tool around yt-dlp to interact with nicovideo.jp website
+Cli tool around yt-dlp to interact with websites
 ## Install
 ```
 git clone https://github.com/meowowner/nicov-cli && cd ./nicov-cli
@@ -12,7 +12,7 @@ cd .. && rm -rf ./nicov-cli
 sudo rm /usr/local/bin/nicov-cli
 ```
 ## Usage
-This project is a simple interface with history being stored in device to interact with nicovideo.jp website through yt-dlp.
+This project is a simple interface with history being stored in device to interact with websites through yt-dlp.
 <br>
 <b>Use of yt-dlp, interaction with website and use of content are at user's own risk.</b>
 <br>
