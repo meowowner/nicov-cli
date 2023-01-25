@@ -1,5 +1,5 @@
 # nicov-cli
-Cli tool around yt-dlp to interact with nicovideo.jp website
+A cli tool around yt-dlp to interact with nicovideo.jp website
 ## Install
 ```
 git clone https://github.com/meowowner/nicov-cli && cd ./nicov-cli
