@@ -131,7 +131,7 @@ dep_check () {
 	[ ! $dep_exist = 0 ] && exit
 }
 
-dep_check "curl" "sed" "grep" "cat" "wc" "printf" "read" "sort" "uniq" "command" "mpv" "yt-dlp"
+dep_check "curl" "sed" "grep" "cat" "wc" "printf" "read" "sort" "uniq" "cut" "command" "mpv" "yt-dlp"
 
 ###Options handling###
 
@@ -142,11 +142,7 @@ while getopts 'p:cwdDsSq:hV' OPT; do
 		V) info "Version: $version"
 		exit
 		;;
-		q) if [ "$OPTARG" ]; then
-		quality="$OPTARG"
-		else
-		die
-		fi
+		q) quality="$OPTARG"
 		;;
 		c) clean=1
 		;;
