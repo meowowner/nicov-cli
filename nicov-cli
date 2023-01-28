@@ -1,7 +1,7 @@
 #!/bin/sh
 
 ##default variables#
-version="1.8.0" ##version bump up, but i am not sure whether changes are good or bad
+version="1.8.1" ##version bump up, but i am not sure whether changes are good or bad
 ##next bump up, looks cleaner probably, some functions have been added
 ##bump up, history now is chronologic, favourites added
 ##bump up, tried some sed and curl stuff and now there is search option, only that but it is probably worth it
@@ -26,7 +26,7 @@ pre=0
 replay=0
 downloaded=0
 form=0
-change=0
+format_change=0
 switch=0
 af=0
 searched=0
@@ -42,10 +42,8 @@ file_h_tmp=$HOME/.nicov_history_cache
 file_tmp=$HOME/.nicov_cache
 [ -f "$file_h" ] || > "$file_h"
 dep_exist=0
-so_URL=0
-nm_URL=0
 linking=0
-prompt2=0
+prompt_big=0
 search_result=0
 hist_result=0
 fav3=0
@@ -78,8 +76,9 @@ goodbye="${magenta}\nThanks for your cooperation\n\033[0m"
 ##play from history(don't know whether it is necessary,
 ##because it can be just chosen and copied) #done
 ##watch non-stop for playlist #done
-##"p" option without prompt only watch_asking #maybe
-##loop with different sized IDs #maybe
+##Loop with only big_prompt #done
+##changing var names to be more specific/code readability (it maybe hard with those that have only one letter) #maybe i will try to spend time on that
+##loop with different sized IDs #maybe if it starts to be an issue
 
 help_text () {
 
@@ -201,31 +200,26 @@ arr="$(printf "%s" "$arr" | sed "s/nm//g")"
 ###echo "a:$arr:a"
 ######################
 
-address_type () {
+url_make () {
 case $x in
 	0) question="$Sm"
 	URL="https://www.nicovideo.jp/watch/sm$1"
-	so_URL=0
-	nm_URL=0
+	diff="sm"
 	linking=0
 	;;
 	1) question="$So"
 	URL="https://www.nicovideo.jp/watch/so$1"
-	so_URL=1
-	nm_URL=0
+	diff="so"
 	linking=0
 	;;
 	2) question="$Nm"
 	URL="https://www.nicovideo.jp/watch/nm$1"
-	nm_URL=1
-	so_URL=0
+	diff="nm"
 	linking=0
 	;;
 	3) [ ! "$loop" = "0" ] && die
 	question="$Link"
 	URL="$1"
-	so_URL=0
-	nm_URL=0
 	linking=1
 	match=0
 	;;
@@ -242,16 +236,14 @@ title="$title\""
 [ "$title" = "\"ニコニコ動画\"" ] && printf "Invalid result\033[0m\n" && exit
 ###echo "a:$title:a"
 [ "$linking" = "1" ] && unset s && return
-if [ "$so_URL" = "$nm_URL" ]; then
-diff="sm"
-s="${URL##*/sm}"
-elif [ "$so_URL" = "1" ]; then
-diff="so"
-s="${URL##*/so}"
-else
-diff="nm"
-s="${URL##*/nm}"
-fi
+case "$diff" in
+	sm) s="${URL##*/sm}"
+	;;
+	so) s="${URL##*/so}"
+	;;
+	nm) s="${URL##*/nm}"
+	;;
+esac
 ###echo "a:$s:a"
 ###echo "a:$diff:a"
 q1="$(grep -m 1 "$diff$s" $file_h)"
@@ -342,7 +334,7 @@ downloading_f () {
 }
 
 watch () {
-[ "$prompt2" = "1" ] && url_check
+[ "$prompt_big" = "1" ] && url_check
 [ "$nicov_history" = "1" ] && cleaning
 [ "$searched" = "1" ] && cleaning
 if [ -n "$quality" ];then
@@ -355,11 +347,11 @@ nicov_history=0
 af=0
 searched=0
 switch=0
-[ "$non_stop" = "0" ] && watch_asking
+[ "$non_stop" = "0" ] && big_prompt
 }
 
 download () {
-[ "$prompt2" = "1" ] && url_check
+[ "$prompt_big" = "1" ] && url_check
 [ "$nicov_history" = "1" ] && cleaning
 [ "$searched" = "1" ] && cleaning
 searched=0
@@ -369,25 +361,26 @@ else
 	making_history downloading
 fi
 replay=0
-watch_asking
+big_prompt
 }
 
 format () {
-[ "$prompt2" = "1" ] && url_check
+[ "$prompt_big" = "1" ] && url_check
 [ "$nicov_history" = "1" ] && cleaning
 [ "$searched" = "1" ] && cleaning
 searched=0
 making_history formating
 replay=0
-watch_asking
+big_prompt
 }
 
 ask_format () {
 	printf "What format do you want?\n" && printf "> " && read quality
-	change=1
+	format_change=1
 	replay=0
 	printf "Quality set to: $quality\n"
-	watch_asking
+	divider
+	big_prompt
 }
 
 hist () {
@@ -430,7 +423,7 @@ case "$hist_opt" in
 	;;
 esac
 cleaning
-address_type "$hist_choice3"
+url_make "$hist_choice3"
 url_check
 else
 divider
@@ -515,7 +508,7 @@ case "$p" in
 esac
 cleaning
 rm "$file_tmp"
-address_type $r
+url_make $r
 url_check
 }
 ####################
@@ -552,10 +545,10 @@ answer () {
 
 ###After handling prompt###
 
-watch_asking () {
-prompt2=1
-[ ! "$change" = "1" ] && [ ! "$af" = "1" ] && video_info
-change=0
+big_prompt () {
+prompt_big=1
+[ ! "$format_change" = "1" ] && [ ! "$af" = "1" ] && video_info
+format_change=0
 af=0
 [ ! "$loop" = "0" ] && [ "$i" -gt "1" ] && [ "$i" -le "$((${#arr}/8))" ] && Previous="${magenta}Previous[p]?\n" || Previous=""
 
@@ -602,13 +595,13 @@ case "$a" in
 	;;
 	c) ask_format
 	;;
-	u) correct "$s" && switch=1 && replay=0 && ask_URL && cleaning && watch_asking
+	u) url_type "$s" && switch=1 && replay=0 && ask_URL && cleaning && big_prompt
 	;;
-	h) hist && watch_asking
+	h) hist && big_prompt
 	;;
-	a) url_check && add_fav && watch_asking
+	a) url_check && add_fav && big_prompt
 	;;
-	s) search && watch_asking
+	s) search && big_prompt
 	;;
 	q) bye
 	;;
@@ -618,7 +611,7 @@ esac
 }
 ###########################
 
-operation () {
+prompt_operation () {
 case "$y" in
 	w) $1
 	;;
@@ -631,20 +624,20 @@ case "$y" in
 	prompt
 	if [ ! "$loop" = "0" ] || [ "$search_result" = "0" ] || [ "$hist_result" = "0" ] && [ -n "$x" ]; then
 	###echo "a:$x:a"
-	operation watch format download hist search
+	prompt_operation watch format download hist search
 	else
-	operation correct correct correct hist search
+	prompt_operation url_type url_type url_type hist search
 	fi
 	;;
-	s) [ "$search_result" = "1" ] && [ "$prompt2" = "0" ] && die
+	s) [ "$search_result" = "1" ] && [ "$prompt_big" = "0" ] && die
 	$5
-	[ "$prompt2" = "0" ] && [ "$loop" = "0" ] && [ -n "$x" ] && video_info
+	[ "$prompt_big" = "0" ] && [ "$loop" = "0" ] && [ -n "$x" ] && video_info
 	prompt
 	if [ ! "$loop" = "0" ] || [ "$search_result" = "0" ] || [ "$hist_result" = "0" ] && [ -n "$x" ]; then
 	###echo "a:$x:a"
-	operation watch format download hist search
+	prompt_operation watch format download hist search
 	else
-	operation correct correct correct hist search
+	prompt_operation url_type url_type url_type hist search
 	fi
 	;;
 	q) bye
@@ -654,12 +647,23 @@ case "$y" in
 	esac
 }
 
-correct () {
+url_type () {
 [ ! "$nicov_history" = "1" ] && [ ! "$searched" = "1" ] && cleaning
 printf "Got it!\n"
 [ "$loop" = "1" ] && printf "${yellow}Sm[0]?\n${cyan}So[1]?\n${yellow}Nm[2]?\n${magenta}" ||  printf "${yellow}Sm[0]?\n${cyan}So[1]?\n${yellow}Nm[2]?\n${cyan}Link[3]?\n${magenta}"
 printf "> " && read x
-address_type "$1"
+url_make "$1"
+}
+
+ask_URL () {
+[ ! "$switch" = "0" ] && [ ! "$linking" = "1" ] && printf "Want to change further?\n${yellow}Yes[y]?\n${cyan}No[n]?\n${magenta}> " && read n && if [ ! "$n" = "y" ]; then 
+return 0
+fi
+printf "$question${magenta}> "
+read z
+url_make "$z"
+url_check
+#[ "$z" = "q" ] && exit
 }
 
 prompt () {
@@ -679,33 +683,50 @@ printf "${red}************${magenta}\n"
 
 video_info () {
 		if [ "$linking" = "0" ]; then
-			divider
-			[ ! "$loop" = "0" ] && printf "${magenta}$i/$((${#arr}/8))\n"
-			
-			if [ ! "$loop" = "0" ]; then
-			printf "##$sm##\n"
-			elif [ -n "$s" ]; then
-			printf "##${magenta}$s${red}##\n"
-			fi
-		fi
+		divider
+		[ ! "$loop" = "0" ] && printf "${magenta}$i/$((${#arr}/8))\n"
+		[ -n "$s" ] && printf "${red}##${magenta}${diff}${s}${red}##\n"
 		divider
 		printf "${magenta}$title\n"
 		divider
+		fi
 }
 
-ask_URL () {
-[ ! "$switch" = "0" ] && [ ! "$linking" = "1" ] && printf "Want to change further?\n${yellow}Yes[y]?\n${cyan}No[n]?\n${magenta}> " && read n && if [ ! "$n" = "y" ]; then 
-return 0
-fi
-printf "$question${magenta}> "
-read z
-address_type "$z"
-url_check
-#[ "$z" = "q" ] && exit
+Loop () {
+	i=1
+	start_pos=0
+	while [ "$i" -le "$((${#arr}/8+1))" ] && [ "$start_pos" -le "${#arr}" ]; do
+		###echo "a:$pre:a"
+		###echo "a:$previus check"
+		###printf "${magenta}$i\n"
+		[ "$pre" = 0 ] && [ "$i" -gt "$((${#arr}/8))" ] && break
+		[ ! "$pre" = 0 ] && i="$((i-2))" && start_pos="$((start_pos-16))"
+		printf "${magenta}"
+		#loop_pos="${arr:$start_pos:8}"
+		end_pos=$((start_pos+8))
+		loop_pos="$(printf "%s" "$arr" | cut -c $((start_pos+1))-$((end_pos)) )"
+		[ "$i" = "1" ] && [ "$pre" = "0" ] && url_type "$loop_pos" || url_make "$loop_pos"
+		[ ! "$pre" = "0" ] && pre=0
+		url_check
+		cleaning
+		if [ "$non_stop" = "0" ]; then
+		big_prompt
+		else
+		y="w"
+		finalizing
+		fi
+		format_change=0
+		nicov_history=0
+		af=0
+		prompt_big=0
+		switch=0
+		i="$((i+=1))"
+		start_pos="$((start_pos+=8))"
+	done
 }
 
 finalizing () {
-	operation watch format download hist search
+	prompt_operation watch format download hist search
 }
 
 bye () {
@@ -717,34 +738,7 @@ bye () {
 
 cleaning
 
-if [ "$loop" = "1" ]; then
-	i=1
-	start_pos=0
-	while [ "$i" -le "$((${#arr}/8+1))" ] && [ "$start_pos" -le "${#arr}" ]; do
-		###echo "a:$pre:a"
-		###echo "a:$previus check"
-		###printf "${magenta}$i\n"
-		[ "$pre" = 0 ] && [ "$i" -gt "$((${#arr}/8))" ] && break
-		[ ! "$pre" = 0 ] && i="$((i-2))" && start_pos="$((start_pos-16))"
-		printf "${magenta}"
-		#sm="${arr:$start_pos:8}"
-		end_pos=$((start_pos+8))
-		sm="$(printf "%s" "$arr" | cut -c $((start_pos+1))-$((end_pos)) )"
-		[ "$i" = "1" ] && [ "$pre" = "0" ] && correct "$sm" || address_type "$sm"
-		[ ! "$pre" = "0" ] && pre=0
-		url_check
-		cleaning
-		[ "$non_stop" = "0" ] && prompt || y="w"
-		finalizing
-		change=0
-		nicov_history=0
-		af=0
-		prompt2=0
-		switch=0
-		i="$((i+=1))"
-		start_pos="$((start_pos+=8))"
-	done
-fi
+[ "$loop" = "1" ] && Loop
 non_stop=0
 loop=0
 unset x
@@ -752,7 +746,7 @@ unset x
 [ ! "$clean" = "0" ] && divider
 prompt
 ##checking y
-operation correct correct correct hist search
+prompt_operation url_type url_type url_type hist search
 ##asking info for URL
 ask_URL
 finalizing
