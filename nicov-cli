@@ -1,7 +1,7 @@
 #!/bin/sh
 
 ##default variables#
-version="1.8.1" ##version bump up, but i am not sure whether changes are good or bad
+version="1.9.0" ##version bump up, but i am not sure whether changes are good or bad
 ##next bump up, looks cleaner probably, some functions have been added
 ##bump up, history now is chronologic, favourites added
 ##bump up, tried some sed and curl stuff and now there is search option, only that but it is probably worth it
@@ -9,6 +9,7 @@ version="1.8.1" ##version bump up, but i am not sure whether changes are good or
 ##bump up, code is supposed to be cleaner now plus delete history options
 ##bump up, because i completed "to do" list and don't have any more ideas
 #once again bump up, now code is supposed to have better syntax, compatibility with other shells, bug fixes etc.
+#bump up, loop option works better but with awk and tr dependencies as sacrifice
 red="\033[1;31m"
 green="\033[1;32m"
 yellow="\033[1;33m"
@@ -22,6 +23,7 @@ nicov_history=0
 loop=0
 non_stop=0
 arr=""
+misses_diff=0
 pre=0
 replay=0
 downloaded=0
@@ -65,7 +67,7 @@ History="${cyan}History[h]?\n"
 Add_fav="${yellow}Add to favourites[a]?\n"
 Search="${magenta}Search[s]?\n"
 Quit="${red}Quit[q]?\n"
-goodbye="${magenta}\nThanks for your cooperation\n\033[0m"
+goodbye="${magenta}\nThanks for your cooperation\n"
 ###################
 
 ###dev tools
@@ -78,7 +80,7 @@ goodbye="${magenta}\nThanks for your cooperation\n\033[0m"
 ##watch non-stop for playlist #done
 ##Loop with only big_prompt #done
 ##changing var names to be more specific/code readability (it maybe hard with those that have only one letter) #maybe i will try to spend time on that
-##loop with different sized IDs #maybe if it starts to be an issue
+##loop with different sized IDs #done
 
 help_text () {
 
@@ -88,8 +90,8 @@ help_text () {
 	
 	USAGE:
 	
-	${0##*/} [-q FORMAT] [-p SM,SM,SM,(...) | [SM][SM][SM](...)] -c -s -S
-	${0##*/} [-q FORMAT] [-p SM,SM,SM,(...) | [SM][SM][SM](...)] -w -c -s -S
+	${0##*/} [-q FORMAT] [-p ID,ID,ID,(...) | [ID],[ID],[ID],(...)] -c -s -S
+	${0##*/} [-q FORMAT] [-p ID,ID,ID,(...) | [ID][ID][ID](...)] -w -c -s -S
 	${0##*/} -h | -V | -d | -D
 	
 	OPTIONS:
@@ -97,7 +99,7 @@ help_text () {
 	-V print version information and exit
 	-d deletes specific entry from history
 	-D deletes whole history
-	-q set quality video (ID)
+	-q set quality video ("ID" column from format [don't confuse with videos ID])
 	-p get many sm or so or nm (playlist like)
 	-w play videos from "p" option without menus (require "p" option to work)
 	-c unable screen cleaning (without it screen is being cleaned by default)
@@ -130,7 +132,7 @@ dep_check () {
 	[ ! $dep_exist = 0 ] && exit
 }
 
-dep_check "curl" "sed" "grep" "cat" "wc" "printf" "read" "sort" "uniq" "cut" "command" "mpv" "yt-dlp"
+dep_check "curl" "awk" "sed" "grep" "cat" "wc" "printf" "read" "sort" "uniq" "cut" "tr" "command" "mpv" "yt-dlp"
 
 ###Options handling###
 
@@ -173,13 +175,12 @@ while getopts 'p:cwdDsSq:hV' OPT; do
 			###echo "a:$(($z-1)):$n1:a"
 			z="$((z-=1))"
 			done
+			printf "Entry deleted\033[0m\n"
 			;;
 			esac
-		printf "\033[0m"
 		exit
 		;;
-		D) [ -f "$file_h" ] && rm "$file_h" && printf "${magenta}History deleted\n"
-		printf "\033[0m"
+		D) [ -f "$file_h" ] && rm "$file_h" && printf "${magenta}History deleted\033[0m\n"
 		exit
 		;;
 		*) die
@@ -189,14 +190,10 @@ done
 
 [ "$non_stop" = "1" ] && [ "$loop" = "0" ] &&  printf "${magenta}\nWorks only with \"p\" option\n" && die
 
-arr="$(printf "%s" "$arr" | sed "s/,//g")"
 arr="$(printf "%s" "$arr" | sed "s/\[//g")"
 arr="$(printf "%s" "$arr" | sed "s/\]//g")"
 arr="$(printf "%s" "$arr" | sed "s/\://g")"
 arr="$(printf "%s" "$arr" | sed "s/\*//g")"
-arr="$(printf "%s" "$arr" | sed "s/sm//g")"
-arr="$(printf "%s" "$arr" | sed "s/so//g")"
-arr="$(printf "%s" "$arr" | sed "s/nm//g")"
 ###echo "a:$arr:a"
 ######################
 
@@ -684,7 +681,7 @@ printf "${red}************${magenta}\n"
 video_info () {
 		if [ "$linking" = "0" ]; then
 		divider
-		[ ! "$loop" = "0" ] && printf "${magenta}$i/$((${#arr}/8))\n"
+		[ ! "$loop" = "0" ] && printf "${magenta}$i/${positions}\n"
 		[ -n "$s" ] && printf "${red}##${magenta}${diff}${s}${red}##\n"
 		divider
 		printf "${magenta}$title\n"
@@ -694,18 +691,37 @@ video_info () {
 
 Loop () {
 	i=1
-	start_pos=0
-	while [ "$i" -le "$((${#arr}/8+1))" ] && [ "$start_pos" -le "${#arr}" ]; do
+	current="Invalid loop args"
+	positions="$( printf "%s" "$arr" | awk -F"," '{print NF }')"
+	###echo "$positions"
+	while [ -n "$current" ]; do
 		###echo "a:$pre:a"
 		###echo "a:$previus check"
-		###printf "${magenta}$i\n"
-		[ "$pre" = 0 ] && [ "$i" -gt "$((${#arr}/8))" ] && break
-		[ ! "$pre" = 0 ] && i="$((i-2))" && start_pos="$((start_pos-16))"
+		[ "$pre" = 0 ] && [ "$i" -gt "$positions" ] && break
+		[ ! "$pre" = 0 ] && i="$((i-2))"
+		current=$( printf "$arr" | tr ',' '\n' | awk -v "i=$i" '{ arr[NR]= $0 } END { print arr[i] }' )
+		diff=$( printf "%s" "$current" | cut -c1,2 )
+		case "$diff" in
+			sm) x=0
+			current="${current##*sm}"
+			;;
+			so) x=1
+			current="${current##*so}"
+			;;
+			nm) x=2
+			current="${current##*nm}"
+			;;
+			*) unset diff
+			misses_diff=1
+			;;
+		esac
+		###echo "$diff"
 		printf "${magenta}"
-		#loop_pos="${arr:$start_pos:8}"
-		end_pos=$((start_pos+8))
-		loop_pos="$(printf "%s" "$arr" | cut -c $((start_pos+1))-$((end_pos)) )"
-		[ "$i" = "1" ] && [ "$pre" = "0" ] && url_type "$loop_pos" || url_make "$loop_pos"
+		###echo "$current"
+		[ -z "$diff" ] && url_type "$current" || url_make "$current"
+[ "$misses_diff" = "1" ] && new_entry=$( printf "%s" "$arr" | tr ',' '\n' | awk -v "diff=$diff" -v "i=$i" '{ arr[NR]= $0 } END { print diff arr[i] }' ) && arr="$( printf "%s" "$arr" | sed "s/$current/$new_entry/" )" && misses_diff=0
+		###echo "$new_entry"
+		###echo "$arr"
 		[ ! "$pre" = "0" ] && pre=0
 		url_check
 		cleaning
@@ -721,7 +737,6 @@ Loop () {
 		prompt_big=0
 		switch=0
 		i="$((i+=1))"
-		start_pos="$((start_pos+=8))"
 	done
 }
 
@@ -738,7 +753,7 @@ bye () {
 
 cleaning
 
-[ "$loop" = "1" ] && Loop
+[ "$loop" = "1" ] && Loop && cleaning
 non_stop=0
 loop=0
 unset x
