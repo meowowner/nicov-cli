@@ -1,15 +1,18 @@
 #!/bin/sh
-
+name="${0##*/}"
+tty="$( ps -C "$name" | sed "\$!d; s/.*pts\///; s/ .*$name//" )"
+###echo "$tty"
 ##default variables#
-version="1.9.0" ##version bump up, but i am not sure whether changes are good or bad
+version="1.10.0" ##version bump up, but i am not sure whether changes are good or bad
 ##next bump up, looks cleaner probably, some functions have been added
 ##bump up, history now is chronologic, favourites added
 ##bump up, tried some sed and curl stuff and now there is search option, only that but it is probably worth it
 ##yet again bump up, but with cost of readability of that script
 ##bump up, code is supposed to be cleaner now plus delete history options
 ##bump up, because i completed "to do" list and don't have any more ideas
-#once again bump up, now code is supposed to have better syntax, compatibility with other shells, bug fixes etc.
-#bump up, loop option works better but with awk and tr dependencies as sacrifice
+##once again bump up, now code is supposed to have better syntax, compatibility with other shells, bug fixes etc.
+##bump up, loop option works better but with awk and tr dependencies as sacrifice
+##another bump up, because i deleted my history by using few instances of that program at once, also some noticeable changes
 red="\033[1;31m"
 green="\033[1;32m"
 yellow="\033[1;33m"
@@ -34,21 +37,24 @@ af=0
 searched=0
 ###
 match=0
-#dir=$HOME/.cache
-#file_h=$dir/.nicov_history
-#file_h_tmp=$dir/.nicov_history_cache
-#file_tmp=$dir/.nicov_cache
-#[ -d "$dir" ] || mkdir "$dir"
-file_h=$HOME/.nicov_history
-file_h_tmp=$HOME/.nicov_history_cache
-file_tmp=$HOME/.nicov_cache
-[ -f "$file_h" ] || > "$file_h"
+dir=${HOME}/.local/share/${name}
+dir_tmp=${HOME}/.cache/${name}
+file_h=${dir}/${name}_history
+file_h_tmp=${dir_tmp}/${name}_history_cache
+file_tmp=${dir_tmp}/${name}_cache
+[ ! -d "$dir" ] && mkdir -p "$dir"
+[ ! -d "$dir_tmp" ] && mkdir -p "$dir_tmp"
+#file_h=$HOME/.nicov_history
+#file_h_tmp=$HOME/.nicov_history_cache
+#file_tmp=$HOME/.nicov_cache
+[ ! -f "$file_h" ] && : > "$file_h"
 dep_exist=0
 linking=0
 prompt_big=0
 search_result=0
 hist_result=0
 fav3=0
+protection=0
 ###
 Sm="${yellow}Sm?\n"
 So="${cyan}So?\n"
@@ -90,9 +96,9 @@ help_text () {
 	
 	USAGE:
 	
-	${0##*/} [-q FORMAT] [-p ID,ID,ID,(...) | [ID],[ID],[ID],(...)] -c -s -S
-	${0##*/} [-q FORMAT] [-p ID,ID,ID,(...) | [ID][ID][ID](...)] -w -c -s -S
-	${0##*/} -h | -V | -d | -D
+	${name} [-q FORMAT] [-p ID,ID,ID,(...) | [ID],[ID],[ID],(...)] -c -s -S
+	${name} [-q FORMAT] [-p ID,ID,ID,(...) | [ID][ID][ID](...)] -w -c -s -S
+	${name} -h | -V | -d | -D
 	
 	OPTIONS:
 	-h print this usage and exit
@@ -105,7 +111,9 @@ help_text () {
 	-c unable screen cleaning (without it screen is being cleaned by default)
 	-s turns off function to choose video from search results
 	-S turns off function to choose video from history
-	
+	-P history protection (kills other working commands with the same name [${name}]
+	to protect history from being deleted by them)
+
 	When changing format, while program runs,
 	if you press enter without writing anything
 	quality will stay default
@@ -132,11 +140,23 @@ dep_check () {
 	[ ! $dep_exist = 0 ] && exit
 }
 
-dep_check "curl" "awk" "sed" "grep" "cat" "wc" "printf" "read" "sort" "uniq" "cut" "tr" "command" "mpv" "yt-dlp"
+dep_check "curl" "awk" "sed" "grep" "cat" "wc" "ps" "printf" "read" "sort" "uniq" "cut" "tr" "command" "nohup" "mpv" "yt-dlp"
+
+protect_history () {
+	tmp_loop="$(($( ps -C "$name" | wc -l)-1))"
+	while [ "$tmp_loop" -gt "1" ]; do
+		killing="$( ps -C nicov | sed "${tmp_loop}!d" | awk '{ print $1 }' )"
+		killing1="$( ps -C nicov | sed "${tmp_loop}!d" | awk '{ print $2 }' )"
+		###echo "$killing"
+		###echo "$killing1"
+		[ ! "pts/$tty" = "$killing1" ] && kill "$killing"
+		tmp_loop=$((tmp_loop-1))
+	done
+}
 
 ###Options handling###
 
-while getopts 'p:cwdDsSq:hV' OPT; do
+while getopts 'p:cwPdDsSq:hV' OPT; do
 	case $OPT in
 		h) die
 		;;
@@ -157,20 +177,26 @@ while getopts 'p:cwdDsSq:hV' OPT; do
 		;;
 		w) non_stop=1
 		;;
+		P) protection=1
+		;;
 		d) while read -r hist; do
 		printf "${white}%s\n" "$hist"
 		done < "$file_h"
+		[ ! -s "$file_h" ] && printf "${magenta}There is nothing here\n" && exit
 		printf "${magenta}Which one to delete?\n"
 		printf "> " && read del_num
 			case "$del_num" in
-			''|*[!0-9]*) die
+			''|*[!0-9]*|0) die
 			;;
 			*)
-			sed "$del_num d" "$file_h" > "$file_h_tmp" && cat "$file_h_tmp" > "$file_h" && rm "$file_h_tmp"
 			n1="$(uniq $file_h | wc -l)"
+			[ "$del_num" -gt "$n1" ] && printf "There is no such entry\033[0m\n" && exit
+			[ "$protection" = "1" ] && protect_history
+			sed "$del_num d" "$file_h" > "$file_h_tmp" && cat "$file_h_tmp" > "$file_h" && rm "$file_h_tmp"
 			z="$(($n1+1))"
 			while [ "$z" -gt "$del_num" ]; do
 			###echo "aaaaa"
+			[ "$protection" = "1" ] && protect_history
 			sed "0,/$z =/ s//$(($z-1)) =/" "$file_h" > "$file_h_tmp" && cat "$file_h_tmp" > "$file_h" && rm "$file_h_tmp"
 			###echo "a:$(($z-1)):$n1:a"
 			z="$((z-=1))"
@@ -243,7 +269,7 @@ case "$diff" in
 esac
 ###echo "a:$s:a"
 ###echo "a:$diff:a"
-q1="$(grep -m 1 "$diff$s" $file_h)"
+q1="$(grep -m 1 "${diff}${s}" $file_h)"
 q2="$(printf "%s" "$q1" | sed "s/\[//")"
 q3="$(printf "%s" "$q2" | sed "s/\]//")"
 m1="${q3##*= }"
@@ -259,7 +285,7 @@ else
 Add_fav="${yellow}Add to favourites[a]?\n"
 fav3=0
 fi
-[ "$diff$s" = "$m3" ] && match=1 || match=0
+[ "${diff}${s}" = "$m3" ] && match=1 || match=0
 ###echo "a:$q1:a"
 ###echo "a:$q2:a"
 ###echo "a:$q3:a"
@@ -281,10 +307,13 @@ clean_tmp () {
 }
 
 making_history () {
+	[ "$protection" = "1" ] && protect_history
 	if [ "$match" = "1" ]; then
-	$1 && n1="$(uniq $file_h | wc -l)" && switching && sort -g "$file_h" > "$file_h_tmp" && clean_tmp
+	n1="$(uniq $file_h | wc -l)" && switching
+	$1
 	elif [ "$linking" = "0" ];then
-	$1 && n2="$(($(uniq $file_h | wc -l)+1))" && printf "$n2 = [$diff$s]        -        $title" >> "$file_h" && sort -g "$file_h" > "$file_h_tmp" && clean_tmp
+	n2="$(($(uniq $file_h | wc -l)+1))" && printf "$n2 = [$diff$s]        -        $title" >> "$file_h" && sort -g "$file_h" > "$file_h_tmp" && clean_tmp
+	$1
 	else
 	$1
 	fi
@@ -301,7 +330,7 @@ switching () {
 	###cat $file_h >> url_check_file
 	###echo "a:$position:a"
 	###echo "a:$n1:a"
-	sed "0,/$position =/ s//$n1 =/" "$file_h" > "$file_h_tmp" && clean_tmp
+	sed "0,/$position =/ s//$n1 =/" "$file_h" | sort -g > "$file_h_tmp" && clean_tmp
 	###cat $file_h >> url_check_file
 }
 
@@ -311,11 +340,11 @@ switching () {
 ###Main operations###
 
 watching () {
-	yt-dlp -o - "$URL" | mpv - 
+	nohup $( yt-dlp -q -o - "$URL" 2>/dev/null | mpv --no-terminal --force-media-title="$title" - ) > /dev/null 2>&1 & 
 }
 
 watching_f () {
-	yt-dlp -f $quality -o - "$URL" | mpv -
+	nohup $( yt-dlp -q -f "$quality" -o - "$URL" 2>/dev/null | mpv --no-terminal --force-media-title="$title" - ) > /dev/null 2>&1 & 
 }
 
 formating () {
@@ -386,6 +415,7 @@ divider
 while read -r hist; do
 	printf "${white}%s\n" "$hist"
 done < "$file_h"
+[ ! -s "$file_h" ] && printf "There is nothing here\n"
 nicov_history=1
 replay=0
 if [ "$hist_result" = "0" ]; then
@@ -473,6 +503,7 @@ while read -r searching; do
 	[ "$((r%2))" = "1" ] && printf "${magenta}$r) ${yellow}%s\n" "$searching" || printf "${magenta}$r) ${cyan}%s\n" "$searching"
 	r="$((r+1))"
 done < "$file_tmp"
+[ ! -s "$file_tmp" ] && printf "There is nothing here\n"
 printf "${yellow}Continue[c]?\n${red}Quit[q]?\n${magenta}"
 printf "> " && read p
 case "$p" in
@@ -653,9 +684,6 @@ url_make "$1"
 }
 
 ask_URL () {
-[ ! "$switch" = "0" ] && [ ! "$linking" = "1" ] && printf "Want to change further?\n${yellow}Yes[y]?\n${cyan}No[n]?\n${magenta}> " && read n && if [ ! "$n" = "y" ]; then 
-return 0
-fi
 printf "$question${magenta}> "
 read z
 url_make "$z"
@@ -699,8 +727,8 @@ Loop () {
 		###echo "a:$previus check"
 		[ "$pre" = 0 ] && [ "$i" -gt "$positions" ] && break
 		[ ! "$pre" = 0 ] && i="$((i-2))"
-		current=$( printf "$arr" | tr ',' '\n' | awk -v "i=$i" '{ arr[NR]= $0 } END { print arr[i] }' )
-		diff=$( printf "%s" "$current" | cut -c1,2 )
+		current="$( printf "$arr" | tr ',' '\n' | awk -v "i=$i" '{ arr[NR]= $0 } END { print arr[i] }' )"
+		diff="$( printf "%s" "$current" | cut -c1,2 )"
 		case "$diff" in
 			sm) x=0
 			current="${current##*sm}"
@@ -719,7 +747,7 @@ Loop () {
 		printf "${magenta}"
 		###echo "$current"
 		[ -z "$diff" ] && url_type "$current" || url_make "$current"
-[ "$misses_diff" = "1" ] && new_entry=$( printf "%s" "$arr" | tr ',' '\n' | awk -v "diff=$diff" -v "i=$i" '{ arr[NR]= $0 } END { print diff arr[i] }' ) && arr="$( printf "%s" "$arr" | sed "s/$current/$new_entry/" )" && misses_diff=0
+[ "$misses_diff" = "1" ] && new_entry="$( printf "%s" "$arr" | tr ',' '\n' | awk -v "diff=$diff" -v "i=$i" '{ arr[NR]= $0 } END { print diff arr[i] }' )" && arr="$( printf "%s" "$arr" | sed "s/$current/$new_entry/" )" && misses_diff=0
 		###echo "$new_entry"
 		###echo "$arr"
 		[ ! "$pre" = "0" ] && pre=0
