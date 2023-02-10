@@ -24,7 +24,8 @@ file_backup=${dir}/${name}-backup
 file_format_temp=$( mktemp -p ${dir_temp} ${name}-format-cache.XXXXXXXXXX )
 file_history_temp=$( mktemp -p ${dir_temp} ${name}-history-cache.XXXXXXXXXX )
 file_search_temp=$( mktemp -p ${dir_temp} ${name}-search-cache.XXXXXXXXXX )
-trap 'exiting 1' SIGHUP SIGINT SIGQUIT SIGTERM
+file_loop_temp=$( mktemp -p ${dir_temp} ${name}-loop-cache.XXXXXXXXXX )
+trap 'exiting "1"' HUP INT QUIT TERM
 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; rv:109.0) Gecko/20100101 Firefox/109.0"
 ####################
 Link="${cyan}Link?\n"
@@ -33,8 +34,7 @@ Replay="${blue}Replay[r]?\n"
 Next="${cyan}Next[n]?\n"
 Download="${yellow}Download[d]?\n"
 Format="${green}Format[f]?\n"
-Format_change="${white}Change format[c]?\n"
-Switch="${green}Change URL[u]?\n"
+Switch="${white}Change URL[u]?\n"
 History="${cyan}History[h]?\n"
 Add_favourites="${blue}Add to favourites[a]?\n"
 Search="${magenta}Search[s]?\n"
@@ -50,42 +50,41 @@ help_text () {
 	
 	USAGE:
 	
-	${name} [-q FORMAT] [-p ID,ID,ID,(...) | [ID],[ID],[ID],(...)] -c -s -S -f
-	${name} [-q FORMAT] [-p ID,ID,ID,(...) | [ID][ID][ID](...)] -w -c -s -S
-	${name} -h | -V | -D | [-b DIR] 
-	${name} -c [-f n] | -c -d | -c [-l LINK ]
+	${name} -c -s -S [-m n][ [ -p ID,ID,ID,(...) | [ID],[ID],[ID],(...)] | -P n ]
+	${name} -w -c -s -S [-m n] [ [ -p ID,ID,ID,(...) | [ID],[ID],[ID],(...)] | -P n ]
+	${name} -h | -V | -D | [-b DIR] | -f
+	${name} -c [-m n] | -c -d | -c [-l LINK ]
 	
 	OPTIONS:
-	-h print this usage and exit
+	-h print this help message and exit
 	-V print version information and exit
 	-d delete specific entry from history
 	-D delete whole history
 	-b back up history (if directory isn't specified in argument, uses $HOME/.local/share)
-	-u fetch backup
-	-q set videos format ("ID" column from format [don't confuse with videos ID])
-	-p get many sm or so or nm (playlist like)
-	-w play videos from "p" option without menus (require "p" option to work)
+	-f fetch backup
+	-p play many videos (playlist like)
+	-P same as above one, but lets you select videos from history using one of menus (n = {1 or 2})
+	-w play videos from playlist without normal menus (require "p" or "P" option to work)
 	-c turn off screen cleaning (without it, screen is being cleaned by default)
 	-l play from link
-	-f select through fzf[1] or dmenu[2]
+	-m select through fzf[1] or dmenu[2] (n = {1 or 2})
 	-s turn off function to choose video from search results
 	-S turn off function to choose video from history
 
-	When changing format, while program runs,
-	if you press enter without writing anything
-	format will stay default
+	This program comes with ABSOLUTELY NO WARRANTY.
+
 	EOF
 }
 
 
 die () {
 	help_text
-	exiting 1
+	exiting "1"
 }
 
 bye () {
 	printf "$goodbye"
-	exiting 0
+	exiting "0"
 }
 
 exiting () {
@@ -99,174 +98,176 @@ exiting () {
 
 dep_check () {
 	for dependency; do
-	if ! command -v "$dependency" > /dev/null; then
-		printf "${red}Missing dependency: $dependency\n"
-		dep_exist=1
-	fi
+		if ! command -v "$dependency" > /dev/null; then
+			printf "${red}Missing dependency: $dependency\n"
+			dep_exist=1
+		fi
 	done
-	[ "$dep_exist" = "1" ] && exiting 1
+	[ "$dep_exist" = "1" ] && exiting "1"
 	! command -v "fzf" > /dev/null && printf "Fzf not present[optional\n"
 	! command -v "dmenu" > /dev/null && printf "Dmenu not present[optional]\n"
 }
 
 divider () {
-printf "${red}************${magenta}\n"
+	printf "${red}************${magenta}\n"
 }
 
 cleaning () {
-
-[ ! "$clean" = "1" ] && printf "\033[2J\033[0;0H"
-return 0
+	[ ! "$clean" = "1" ] && printf "\033[2J\033[0;0H"
+	return 0
 }
 
 video_info () {
-		divider
-		if [ "$loop" = "1" ] && [ "$menu" = "1" ]; then
+	divider
+	if [ "$loop" = "1" ] && [ "$menu" = "1" ]; then
 		printf "${magenta}$i\n"
-		elif [ "$loop" = "1" ]; then
+	elif [ "$loop" = "1" ]; then
 		printf "${magenta}$i/${positions}\n"
-		fi
-		printf "${red}##${magenta}${diff}${id_numbers}${red}##\n"
-		divider
-		printf "${magenta}$title\n"
-		divider
+	fi
+	printf "${red}##${magenta}${diff}${id_numbers}${red}##\n"
+	divider
+	printf "${magenta}$title\n"
+	divider
 }
 
+menu_select () {
+	case $type_menu in
+		1) dep_check "fzf"
+		fzf +m --reverse --prompt "$1"
+		;;
+		2) dep_check "dmenu"
+		dmenu -p "$1" -l "$2" -i
+		;;
+		*) printf "${magenta}Menus:\nfzf[1]\ndmenu[2]\n"
+		die
+		;;
+	esac
+}
+#############DEFAULT_PROMPT#####################
 prompt () {
-[ "$loop" = "1" ] && video_info
-printf "$Watch$Download$Format$History$Search$Quit${magenta}"
-printf "> " && read -r prompt_answer
-[ "$clean" = "1" ] && divider
-prompt_operation $1 $2 $3 $4 $5
+	[ "$loop" = "1" ] && video_info
+	printf "$Watch$Download$Format$History$Search$Quit${magenta}"
+	printf "> " && read -r prompt_answer
+	[ "$clean" = "1" ] && [ ! "$prompt_answer" = "h" ] && divider
+	prompt_operation $1 $2 $3 $4 $5
 }
 
 prompt_operation () {
-case "$prompt_answer" in
-	w) $1
-	;;
-	f) $2
-	;;
-	d) $3
-	;;
-	h) $4
-	if [ -n "$diff" ]; then
-	#echo "a:$diff:a"
-	big_prompt
-	else
-	prompt url_ask url_ask url_ask hist search
-	fi
-	;;
-	s) $5
-	if [ -n "$diff" ]; then
-	#echo "a:$diff:a"
-	big_prompt
-	else
-	prompt url_ask url_ask url_ask hist search
-	fi
-	;;
-	q) bye
-	;;
-	*) die
-	;;
+	case "$prompt_answer" in
+		w) $1
+		;;
+		f) $2
+		;;
+		d) $3
+		;;
+		h) $4
+		if [ -n "$diff" ]; then
+		big_prompt
+		else
+		prompt url_ask url_ask url_ask hist search
+		fi
+		;;
+		s) $5
+		if [ -n "$diff" ]; then
+		big_prompt
+		else
+		prompt url_ask url_ask url_ask hist search
+		fi
+		;;
+		q) bye
+		;;
+		*) die
+		;;
 	esac
 }
-
+###################URL########################
 url_ask () {
-printf "${magenta}ID?\n> "
-read -r REPLY
-diff="$( printf "%s" "$REPLY" | cut -c1,2 )"
-#echo "a:$diff:a"
-id_numbers="${REPLY##*$diff}"
-#echo "a:$id_numbers:a"
-case $id_numbers in
-	*[!0-9]*) printf "${red}Invalid ID\n"
-	exiting 0
-	;;
-esac
-url_make "$REPLY"
-[ -n "$got_title" ] && unset got_title
-url_check
+	divider
+	printf "${magenta}ID?\n> "
+	read -r REPLY
+	diff="$( printf "%s" "$REPLY" | cut -c1,2 )"
+	id_numbers="${REPLY##*$diff}"
+	case $id_numbers in
+		*[!0-9]*) printf "${red}Invalid ID\n"
+		exiting "0"
+		;;
+	esac
+	cleaning
+	url_make "$REPLY"
+	[ -n "$got_title" ] && unset got_title
+	url_check
 }
 
 
 url_make () {
-case $diff in
-	sm|so|nm)
-	URL="https://www.nicovideo.jp/watch/$1"
-	;;
-	lv|mg|*[0-9]*)
-	printf "${red}Invalid ID or not a video\n"
-	exiting 0
-	;;
-	*) die
-	;;
+	unset format
+	case $diff in
+		sm|so|nm)
+		URL="https://www.nicovideo.jp/watch/$1"
+		;;
+		lv|mg|*[0-9]*)
+		printf "${red}Invalid ID or not a video\n"
+		exiting "0"
+		;;
+		*) die
+		;;
 	esac
 }
 
-#checks whether entry is present in history
 url_check () {
-#echo "a:$URL:a"
-if [ ! "$got_title" = "1" ]; then
-title="$(curl -A "$user_agent" -s "$URL" | grep -m 1 "property=\"og:title\"" | sed "s/.*content=//; s/\">/\"/")"
-title="${title%\"*}"
-title="$title\""
-got_title=1
-#echo "makes title in check\n"
-fi
-[ "$title" = "\"ニコニコ動画\"" ] && printf "${red}Invalid result\n" && exiting 0
-#echo "a:$title:a"
-#echo "a:$id_numbers:a"
-#echo "a:$diff:a"
-line_history="$(grep -m 1 "${diff}${id_numbers}" $file_history)"
-line_history_nobraces="$(printf "%s" "$line_history" | sed "s/\[//; s/\]//")"
-line_history_without_position="${line_history_nobraces##*= }"
-id_from_history="$(printf "%s" "$line_history" | sed "s/.*\[//g; s/\].*//g")"
-position="${line_history_nobraces%% =*}"
-fav_symbol_extract="${line_history_without_position%%      -        $title}"
-fav_symbol="${fav_symbol_extract##$id_from_history}"
-if [ "$fav_symbol" = ":*" ]; then
-Add_favourites="${yellow}Delete from favourites[a]?\n"
-favourite=1
-else
-Add_favourites="${yellow}Add to favourites[a]?\n"
-unset favourite
-fi
-[ "${diff}${id_numbers}" = "${id_from_history}" ] && match=1 || unset match
-#echo "a:$line_history:a"
-#echo "a:$line_history_nobraces:a"
-#echo "a:$line_history_without_position:a"
-#echo "a:$id_from_history:a"
-#echo "a:$position:a"
-#echo "a:$fav_symbol_extract:a"
-#echo "a:$fav_symbol:a"
-#echo "a:$favourite:a"
-#echo "a:$diff$id_numbers:a"
-#echo "a:$match:a"
+	#checks whether entry is present in history
+	if [ ! "$got_title" = "1" ]; then
+		[ "$clean" = "1" ] && divider
+		[ "$non_stop" = "1" ] && printf "Loading...[$i]\n" || printf "Loading...\n"
+		title="$(curl -A "$user_agent" -s "$URL" | grep -m 1 "property=\"og:title\"" | sed "s/.*content=//; s/\">/\"/")"
+		title="${title%\"*}"
+		title="$title\""
+		got_title=1
+	fi
+	[ "$title" = "\"ニコニコ動画\"" ] && printf "${red}Invalid result\n" && exiting "0"
+	line_history="$(grep -m 1 "${diff}${id_numbers}" $file_history)"
+	line_history_nobraces="$(printf "%s" "$line_history" | sed "s/\[//; s/\]//")"
+	line_history_without_position="${line_history_nobraces##*= }"
+	id_from_history="$(printf "%s" "$line_history" | sed "s/.*\[//g; s/\].*//g")"
+	position="${line_history_nobraces%% =*}"
+	fav_symbol_extract="${line_history_without_position%%      -        $title}"
+	fav_symbol="${fav_symbol_extract##$id_from_history}"
+	if [ "$fav_symbol" = ":*" ]; then
+		Add_favourites="${blue}Delete from favourites[a]?\n"
+		favourite=1
+	else
+		Add_favourites="${blue}Add to favourites[a]?\n"
+		unset favourite
+	fi
+	[ "${diff}${id_numbers}" = "${id_from_history}" ] && match=1 || unset match
 }
 
 url_type () {
-#[ ! "$nicov_history" = "1" ] && [ ! "$searched" = "1" ] && cleaning
-printf "${yellow}Sm[0]?\n${cyan}So[1]?\n${yellow}Nm[2]?\n${magenta}"
-printf "> " && read -r REPLY
-case $REPLY in
-	0) diff="sm"
-	;;
-	1) diff="so"
-	;;
-	2) diff="nm"
-	;;
-	*) die
-	;;
-esac
+	cleaning
+	divider
+	printf "${yellow}Sm[0]?\n${cyan}So[1]?\n${yellow}Nm[2]?\n${magenta}"
+	printf "> " && read -r REPLY
+	case $REPLY in
+		0) diff="sm"
+		;;
+		1) diff="so"
+		;;
+		2) diff="nm"
+		;;
+		*) die
+		;;
+	esac
+	cleaning
 }
 
-
+###################Handling_history#################
 
 clean_temp () {
 	 cat "$file_history_temp" > "$file_history" && : > "$file_history_temp"
 }
 
 making_history () {
+	#updating or adding entry to history
 	lines="$(uniq $file_history | wc -l)"
 	if [ "$match" = "1" ]; then
 		switching
@@ -279,261 +280,244 @@ making_history () {
 }
 
 switching () {
-	switching_var="$lines"
-	
+	#belongs to making_history
+	switching_var="$lines"	
 	while [ "$switching_var" -gt "$position" ]; do
 		sed "0,/$switching_var =/ s//$((switching_var-1)) =/" "$file_history" > "$file_history_temp" && clean_temp
 		switching_var="$((switching_var-1))"
 	done
-
 	sed "0,/$position =/ s//$lines =/" "$file_history" | sort -g > "$file_history_temp" && clean_temp
 }
 
 #####################
 
 
-
+#################Main_operations####################
 
 watching () {
+	#belongs to watch
 	nohup $( yt-dlp -q -o - "$URL" 2>/dev/null | mpv --no-terminal --force-media-title="$title" - ) > /dev/null 2>&1 & 
 }
 
 watching_f () {
+	#belongs to watch
 	nohup $( yt-dlp -q -f "$format" -o - "$URL" 2>/dev/null | mpv --no-terminal --force-media-title="$title" - ) > /dev/null 2>&1 & 
 }
 
-formating () {
-	#seems like pipies and tee drops line-drawing characters
-	yt-dlp -F "$URL" | sed "/ID/ s/^/\\\033\[0;33m/;
-	/ID/ s/|/\\\033\[0;34m\\\033\(0x\\\033\(B\\\033\[0;33m/g; /---/,$ s/^/\\\033\[0;32m/; /---/,$ s/ /\\\033\[0m /; /---/ s/\\\033\[0;32m/\\\033\[0;34m/; /---/ s/-/\\\033\(0q\\\033\(B/g; s/|/\\\033\[0;34m\\\033\(0x\\\033\(B\\\033\[0m/g" > "$file_format_temp"
-	while read -r REPLY; do
-		printf "\\033[0m$REPLY\n"
-	done < "$file_format_temp"
-}
-
 downloading () {
+	#belongs to download
 	yt-dlp "$URL"
 }
 
 downloading_f () {
+	#belongs to download
 	yt-dlp -f "$format" "$URL"
 }
 
 watch () {
-[ "$prompt_big" = "1" ] && url_check
-#[ "$nicov_history" = "1" ] && cleaning
-#[ "$searched" = "1" ] && cleaning
-if [ -n "$format" ];then
-	making_history watching_f
-else
-	making_history watching
-fi
-replay=1
-#unset nicov_history
-#unset favourite_add
-#unset searched
-[ ! "$non_stop" = "1" ] && big_prompt
+	[ "$prompt_big" = "1" ] && url_check
+	if [ -n "$format" ];then
+		making_history watching_f
+	else
+		making_history watching
+	fi
+	replay=1
+	[ ! "$non_stop" = "1" ] && big_prompt
 }
 
 download () {
-[ "$prompt_big" = "1" ] && url_check
-#[ "$nicov_history" = "1" ] && cleaning
-#[ "$searched" = "1" ] && cleaning
-#unset searched
-if [ -n "$format" ];then
-	making_history downloading_f
-else
-	making_history downloading
-fi
-unset replay
-big_prompt
-}
-
-format () {
-#echo "a:aaa:a"
-[ "$prompt_big" = "1" ] && url_check
-#[ "$nicov_history" = "1" ] && cleaning
-#[ "$searched" = "1" ] && cleaning
-#unset searched
-making_history formating
-unset replay
-big_prompt
-}
-
-ask_format () {
-	
-	formats="$( sed "1,5 d; s/\\\033\[.;..m//; s/\\\033\[0m//" "$file_format_temp" | awk '{ print $1 }' )"
-	[ ! -s "$file_format_temp" ] && yt-dlp -F "$URL" | sed "0,/---/ d" > "$file_format_temp" && formats="$( awk '{ print $1 }' "$file_format_temp" )"
-	if [ ! "$menu" = "1" ]; then
-	printf "What format you want?\n\033[0m$formats\nBest[ENTER]\n" && printf "${magenta}> " && read -r select_format
-	match_format="$( printf "%s" "$formats" | grep -x "$select_format" )" 
+	[ "$prompt_big" = "1" ] && url_check
+	if [ -n "$format" ];then
+		making_history downloading_f
 	else
-	number_format="$( grep -c -v ",*'*," "$file_format_temp" )"
-	echo "$number_format"
-	select_format="$( printf "$formats" | fzf +m --reverse --prompt "Formats: >" )"
+		making_history downloading
 	fi
-	best_format="$( printf "%s" "$formats" | sed "$ ! d" )" 
-	echo "a:$select_format:a"
-	echo "a:$formats:a"
-	echo "a:$match_format:a"
-	echo "a:$best_format:a"
-	format_change=1
 	unset replay
-	if [ "$menu" = "1" ] || [ -z "$select_format" ] || [ -n "$match_format" ]; then
-	format="${select_format:-${format:-${best_format}}}"
-	printf "Quality set to: \033[0m$format\n"
-	else
-	printf "Format don't match\n"
-	fi
-	divider
 	big_prompt
 }
 
-hist () {
-cleaning
-divider
-[ ! -s "$file_history" ] && printf "There is nothing here\n"
-#nicov_history=1
-unset replay
-if [ ! "$history_result" = "1" ]; then
-hist_prompt
-else
-while read -r REPLY; do
-	printf "${white}%s\n" "$REPLY"
-done < "$file_history"
-divider
-fi
+formating () {
+	[ "$prompt_big" = "1" ] && url_check
+	[ "$clean" = "1" ] && divider
+	printf "Loading formats...\n"
+	yt-dlp -F "$URL" | sed "/ID/ s/^/\\\033\[0;33m/; /ID/ s/|/\\\033\[0;34m\\\033\(0x\\\033\(B\\\033\[0;33m/g; /---/,$ s/^/\\\033\[0;32m/; /---/,$ s/ /\\\033\[0m /; /---/ s/\\\033\[0;32m/\\\033\[0;34m/; /---/ s/-/\\\033\(0q\\\033\(B/g; s/|/\\\033\[0;34m\\\033\(0x\\\033\(B\\\033\[0m/g" > "$file_format_temp" #seems like pipe and tee drops line-drawing characters
+	while read -r REPLY; do
+		printf "\\033[0m$REPLY\n"
+	done < "$file_format_temp"
+	ask_format
+	unset replay
+	if [ ! "$link" = "1" ]; then
+	big_prompt
+	else
+	handling_links
+	fi
 }
 
+ask_format () {
+	#belongs to formating
+	formats="$( sed "1,5 d; s/\\\033\[.\;..m//; s/\\\033(.//; s/\\\033\[0m//" "$file_format_temp" | awk '{ print $1 }' )"
+	check_url="$( sed "1 s/.*Extracting URL: //; 1 ! d" "$file_format_temp" )"
+	[ ! "$URL" = "$check_url" ] && printf "URL don't match\n" && return 0
+	if [ ! "$menu" = "1" ]; then
+		printf "${magenta}What format you want?\n\033[0mBest[ENTER]\n" && printf "${magenta}> " && read -r select_format
+	else
+		number_format="$( sed "1,/\\\033(0q\\\033(B/ d" "$file_format_temp" | wc -l )"
+		#menu_select substitute to implement height for fzf
+		if [ "$type_menu" = "1" ]; then
+			select_format="$( printf "$formats" | fzf +m --height=~30 --reverse --prompt "Formats: >" )"
+		else
+			select_format="$( printf "$formats" | menu_select "Formats: >" "$number_format" )"
+		fi
+	fi
+	match_format="$( printf "%s" "$formats" | grep -x "$select_format" )" 
+	best_format="$( printf "%s" "$formats" | sed "$ ! d" )" 
+	unset replay
+	if [ "$menu" = "1" ] || [ -z "$select_format" ] || [ -n "$match_format" ]; then
+		[ ! "$select_format" = "$match_format" ] && unset select_format
+		format="${select_format:-${format:-${best_format}}}"
+		printf "${magenta}Quality set to: \033[0m$format\n"
+	else
+		printf "Format don't match\n"
+	fi
+	divider
+}
+
+###################HISTORY###########################
+
+hist () {
+	cleaning
+	divider
+	[ ! -s "$file_history" ] && printf "There is nothing here\n"
+	unset replay
+	if [ ! "$history_result" = "1" ]; then
+		hist_prompt
+	else
+		while read -r REPLY; do
+			printf "${white}%s\n" "$REPLY"
+		done < "$file_history"
+		divider
+	fi
+}
+	
 hist_prompt () {
-if [ ! "$menu" = "1" ]; then
-while read -r REPLY; do
-	printf "${white}%s\n" "$REPLY"
-done < "$file_history"
-printf "${yellow}Continue[c]?\n${red}Quit[q]?\n${magenta}"
-printf "> " && read -r hist
-else
-lines="$(uniq $file_history | wc -l)"
-hist="$( printf "%s\nContinue\nQuit\n" "$( tac "$file_history")" | menu_select "History:" "$((lines+2))" )"
-hist="$( printf "%s" "$hist" | sed "s/ = .*//" )"
-fi
-case "$hist" in
-	c|Continue) cleaning && return 0
-	;;
-	q|Quit) bye
-	;;
-	''|*[!0-9]*) die
-	;;
-	*)
-	line_history="$(grep -m 1 "$hist = \[" "$file_history" | sed "s/$hist = \[//; s/\].*//" )"
-	diff="$(printf "%s" "$line_history" | cut -c1,2)"
-	id_numbers="$(printf "%s" "$line_history" | sed "s/$diff//")"
-	#echo "a:$line_history:a"
-	#echo "a:$diff:a"
-	#echo "a:$id_numbers:a"
-	#echo "a:$URL:a"
-	case $id_numbers in
-		*[!0-9]*) printf "${red}Invalid ID\n" && exiting 0
+	#normal behaviour, opposite to "s" option
+	if [ ! "$menu" = "1" ]; then
+		while read -r REPLY; do
+			printf "${white}%s\n" "$REPLY"
+		done < "$file_history"
+		printf "${yellow}Continue[c]?\n${red}Quit[q]?\n${magenta}"
+		divider
+		printf "> " && read -r hist
+	else
+		lines="$(uniq $file_history | wc -l)"
+		hist="$( printf "%s\nContinue\nQuit\n" "$( tac "$file_history")" | menu_select "History:" "$((lines+2))" )"
+		hist="$( printf "%s" "$hist" | sed "s/ = .*//" )"
+	fi
+	case "$hist" in
+		c|Continue) cleaning && return 0
+		;;
+		q|Quit) bye
+		;;
+		''|*[!0-9]*) die
+		;;
+		*)
+		line_history="$(grep -m 1 "$hist = \[" "$file_history" | sed "s/$hist = \[//; s/\].*//" )"
+		diff="$(printf "%s" "$line_history" | cut -c1,2)"
+		id_numbers="$(printf "%s" "$line_history" | sed "s/$diff//")"
+		case $id_numbers in
+			*[!0-9]*) printf "${red}Invalid ID\n" && exiting "0"
+			;;
+		esac
 		;;
 	esac
-	;;
-esac
-cleaning
-unset got_title
-url_make "${diff}${id_numbers}"
-url_check
+	cleaning
+	unset got_title
+	url_make "${diff}${id_numbers}"
+	url_check
 }
 
+##################Search########################
+search () {
+	cleaning
+	divider
+	printf "${magenta}Search?\n"
+	printf "> " && read -r REPLY
+	printf "Searching...\n"
+	divider
+	query="$(printf "%s" "$REPLY" | sed "s/ /%20/g")"
+	if [ ! "$search_result" = "1" ]; then
+		search_selection
+	else
+		curl -A "$user_agent" -s "https://www.nicovideo.jp/search/$query?ref=" | grep "<a title=" | sed "s/.*title=\"/\"/; s/href=\"\/watch\//[/; s/\" data-href.*/]/" && divider
+	fi
+	unset replay
+	}
+	
+search_selection () {
+	#normal behaviour, opposite to "s" option
+	curl -A "$user_agent" -s "https://www.nicovideo.jp/search/$query?ref=" | grep "<a title=" | sed "s/.*title=\"/\"/; s/href=\"\/watch\//[/; s/\" data-href.*/]/" > "$file_search_temp"
+	if [ ! "$menu" = "1" ]; then
+		result_position=1
+		while read -r searching; do
+			[ "$((result_position%2))" = "1" ] && printf "${magenta}${result_position}) ${yellow}%s\n" "$searching" || printf "${magenta}${result_position}) ${cyan}%s\n" "$searching"
+			result_position="$((result_position+1))"
+		done < "$file_search_temp"
+		[ ! -s "$file_search_temp" ] && printf "There is nothing here\n"
+		printf "${yellow}Continue[c]?\n${red}Quit[q]?\n${magenta}"
+		divider
+		printf "> " && read -r search_select
+	else
+		result_position="$( cat "$file_search_temp" | wc -l )"
+		search_select_menu="$( printf "%s\nContinue\nQuit\n" "$( cat "$file_search_temp")" | menu_select "Search results:" "$((result_position+2))" )"
+		search_select="$( grep -n -x -F -h -m 1 "$search_select_menu" "$file_search_temp" | sed "s/:.*//" )"
+		[ -z "$search_select" ] && search_select="$( printf "%s" "$search_select_menu" | cut -c1 )"
+	fi
+	case "$search_select" in
+		c|C) : > "$file_search_temp" && cleaning && return 0
+		;;
+		q|Q) : > "$file_search_temp" && bye
+		;;
+		''|*[!0-9]*) : > "$file_search_temp" && die
+		;;
+		*)
+		result_line="$(sed "$search_select! d" "$file_search_temp")"
+		title="$( printf "%s" "$result_line" | sed "s/\" \[.*/\"/" )" && got_title=1
+		id="$( printf "%s" "$result_line" | sed "s/.*\" \[//; s/\]//" )"
+		diff="$(printf "%s" "$id" | cut -c1,2)"
+		id_numbers="$(printf "%s" "$id" | sed "s/$diff//g")"
+		case $id_numbers in
+			*[!0-9]*) printf "${red}Invalid ID\n" && exiting "0"
+			;;
+		esac
+		;;
+	esac
+	cleaning
+	: > "$file_search_temp"
+	url_make "${diff}${id_numbers}"
+	url_check
+}
+
+##################FAVOURITE######################
 add_favourite () {
+	divider
+	cleaning
 	if [ ! "$favourite" = "1" ]; then
 		if [ "$match" = "1" ]; then
-		sed "s/\[$id_from_history\]  /\[$id_from_history\]:*/" "$file_history" > "$file_history_temp" && clean_temp
+			sed "s/\[$id_from_history\]  /\[$id_from_history\]:*/" "$file_history" > "$file_history_temp" && clean_temp
 		else
-		printf "$(($(uniq "$file_history" | wc -l)+1)) = [$diff$id_numbers]:*      -        $title" >> "$file_history" && sort -g "$file_history" > "$file_history_temp" && clean_temp
+			printf "$(($(uniq "$file_history" | wc -l)+1)) = [$diff$id_numbers]:*      -        $title" >> "$file_history" && sort -g "$file_history" > "$file_history_temp" && clean_temp
 		fi && printf "Added to favourites\n"
 	elif [ "$favourite" = "1" ] && [ "$match" = "1" ]; then
 		sed "s/\[$id_from_history\]:\*/\[$id_from_history\]  /" "$file_history" > "$file_history_temp" && clean_temp
 		printf "Deleted from favourites\n"
 	else
-		printf "Somehow cannot edit\n"
+		printf "Cannot edit\n"
 	fi
-	divider
-	#favourite_add=1
 	unset replay
 	url_check
 }
 
-search () {
-cleaning
-divider
-printf "${magenta}Search?\n"
-printf "> " && read -r REPLY
-
-printf "Waiting...\n"
-query="$(printf "%s" "$REPLY" | sed "s/ /%20/g")"
-if [ ! "$search_result" = "1" ]; then
-search_selection
-else
-curl -A "$user_agent" -s "https://www.nicovideo.jp/search/$query?ref=" | grep "<a title=" | sed "s/.*title=\"/\"/; s/href=\"\/watch\//[/; s/\" data-href.*/]/" && divider
-fi
-####echo "a:$query:a"
-unset replay
-#searched=1
-}
-
-search_selection () {
-curl -A "$user_agent" -s "https://www.nicovideo.jp/search/$query?ref=" | grep "<a title=" | sed "s/.*title=\"/\"/; s/href=\"\/watch\//[/; s/\" data-href.*/]/" > "$file_search_temp"
-if [ ! "$menu" = "1" ]; then
-result_position=1
-while read -r searching; do
-	[ "$((result_position%2))" = "1" ] && printf "${magenta}${result_position}) ${yellow}%s\n" "$searching" || printf "${magenta}${result_position}) ${cyan}%s\n" "$searching"
-	result_position="$((result_position+1))"
-done < "$file_search_temp"
-[ ! -s "$file_search_temp" ] && printf "There is nothing here\n"
-printf "${yellow}Continue[c]?\n${red}Quit[q]?\n${magenta}"
-printf "> " && read -r search_select
-else
-result_position="$( wc -l "$file_search_temp" | sed "s/ .*//" )"
-echo "$result_position"
-search_select_menu="$( printf "%s\nContinue\nQuit\n" "$( cat "$file_search_temp")" | menu_select "Search results:" "$((result_position+2))" )"
-echo "a:$search_select_menu:a"
-search_select="$( grep -n -x -F -h -m 1 "$search_select_menu" "$file_search_temp" | sed "s/:.*//" )"
-echo "a:$search_select:a"
-[ -z "$search_select" ] && search_select="$( printf "%s" "$search_select_menu" | cut -c1 )"
-fi
-echo "a:$search_select:a"
-case "$search_select" in
-	c|C) : > "$file_search_temp" && cleaning && return 0
-	;;
-	q|Q) : > "$file_search_temp" && bye
-	;;
-	''|*[!0-9]*) : > "$file_search_temp" && die
-	;;
-	*)
-	#echo "a:$REPLY:a"
-	result_line="$(sed "$search_select! d" "$file_search_temp")"
-	#echo "a:$result_line:a"
-	title="$( printf "%s" "$result_line" | sed "s/\" \[.*/\"/" )" && got_title=1
-	#echo "a:$title:a"
-	id="$( printf "%s" "$result_line" | sed "s/.*\" \[//; s/\]//" )"
-	#echo "a:${id}:a"
-	diff="$(printf "%s" "$id" | cut -c1,2)"
-	#echo "a:${diff}:a"
-	id_numbers="$(printf "%s" "$id" | sed "s/$diff//g")"
-	#echo "a:$id_numbers:a"
-	case $id_numbers in
-		*[!0-9]*) printf "${red}Invalid ID\n" && exiting 0
-		;;
-	esac
-	;;
-esac
-cleaning
-: > "$file_search_temp"
-url_make "${diff}${id_numbers}"
-url_check
-}
-
-
+##################BIG_PROMPT####################
 #check input
 answer () {
 	case "$1" in
@@ -557,8 +541,6 @@ answer () {
 		;;
 		${11})
 		;;
-		${12})
-		;;
 		*) die
 		;;
 	esac
@@ -567,221 +549,252 @@ answer () {
 ###After handling prompt###
 
 big_prompt () {
-prompt_big=1
-[ "$replay" = "1" ] && divider && printf "Playing...\n"
-[ ! "$format_change" = "1" ] && [ ! "$favourite_add" = "1" ] && video_info
-#unset format_change
-#unset favourite_add
-[ "$loop" = "1" ] && [ "$i" -gt "1" ] && [ "$i" -le "$((${#list}/8))" ] && [ ! "$menu" = "1" ] && Previous="${magenta}Previous[p]?\n" || Previous=""
-
-if [ "$replay" = "1" ] && [ "$loop" = "1" ]; then
-	printf "${Previous}$Replay$Next$Download$Format$Format_change$Switch$History$Add_favourites$Search$Quit${magenta}"
-elif [ "$loop" = "1" ]; then
-	printf "${Previous}$Watch$Next$Download$Format$Format_change$Switch$History$Add_favourites$Search$Quit${magenta}"
-elif [ "$replay" = "1" ]; then
-	printf "$Replay$Download$Format$Format_change$Switch$History$Add_favourites$Search$Quit${magenta}"
-else
-	printf "$Watch$Download$Format$Format_change$Switch$History$Add_favourites$Search$Quit${magenta}"
-fi
-
-#echo "a:$i:a"
-printf "> " && read -r REPLY
-if [ ! "$loop" = "1" ]; then
+	prompt_big=1
 	if [ "$replay" = "1" ]; then
-		answer "$REPLY" "r" "d" "f" "c" "u" "h" "a" "s" "q" "q" "q"
-	else
-		answer "$REPLY" "w" "d" "f" "c" "u" "h" "a" "s" "q" "q" "q" && [ "$REPLY" = "w" ] && REPLY="r"
+	cleaning
+	[ "$clean" = "1" ] && divider
+	printf "Playing...\n"
 	fi
-fi
-##starts checking loop
-if [ "$loop" = "1" ]; then
-	if [ "$replay" = "1" ] && [ "$i" -gt "1" ] && [ "$i" -le "$((${#list}/8))" ]; then
-		answer "$REPLY" "p" "r" "n" "d" "f" "c" "u" "h" "a" "s" "q"
-	elif [ "$i" -gt "1" ] && [ "$i" -le "$((${#list}/8))" ]; then
-		answer "$REPLY" "p" "w" "n" "d" "f" "c" "u" "h" "a" "s" "q" && [ "$REPLY" = "w" ] && REPLY="r"
-	elif [ "$replay" = "1" ]; then
-		answer "$REPLY" "r" "n" "d" "f" "c" "h" "u" "a" "s" "q" "q"
-	else
-		answer "$REPLY" "w" "n" "d" "f" "c" "h" "u" "a" "s" "q" "q" && [ "$REPLY" = "w" ] && REPLY="r"
-	fi
-fi
+	video_info
+	[ "$loop" = "1" ] && [ "$i" -gt "1" ] && [ "$i" -le "$((${#list}/8))" ] && [ ! "$menu" = "1" ] && Previous="${magenta}Previous[p]?\n" || Previous=""
 
-[ "$loop" = "1" ] && [ "$REPLY" = "p" ] && previous=1
-case "$REPLY" in
-	r) cleaning && watch
-	;;
-	d) cleaning && download
-	;;
-	f) cleaning && format
-	;;
-	c) ask_format
-	;;
-	u) unset replay && url_ask && cleaning && big_prompt
-	;;
-	h) hist && big_prompt
-	;;
-	a) url_check && add_favourite && big_prompt
-	;;
-	s) search && big_prompt
-	;;
-	q) bye
-	;;
-	p) [ -z "$Previous" ] && die
-	;;
-	n)
-	;;
-	*) die
-	;;
-esac
+	if [ "$replay" = "1" ] && [ "$loop" = "1" ]; then
+		printf "${Previous}$Replay$Next$Download$Format$Switch$History$Add_favourites$Search$Quit${magenta}"
+	elif [ "$loop" = "1" ]; then
+		printf "${Previous}$Watch$Next$Download$Format$Switch$History$Add_favourites$Search$Quit${magenta}"
+	elif [ "$replay" = "1" ]; then
+		printf "$Replay$Download$Format$Switch$History$Add_favourites$Search$Quit${magenta}"
+	else
+		printf "$Watch$Download$Format$Switch$History$Add_favourites$Search$Quit${magenta}"
+	fi
+
+	printf "> " && read -r REPLY
+	if [ ! "$loop" = "1" ]; then
+		if [ "$replay" = "1" ]; then
+			answer "$REPLY" "r" "d" "f" "u" "h" "a" "s" "q" "q" "q"
+		else
+			answer "$REPLY" "w" "d" "f" "u" "h" "a" "s" "q" "q" "q" && [ "$REPLY" = "w" ] && REPLY="r"
+		fi
+	fi
+	##starts checking loop
+	if [ "$loop" = "1" ]; then
+		if [ "$replay" = "1" ] && [ "$i" -gt "1" ] && [ "$i" -le "$((${#list}/8))" ]; then
+			answer "$REPLY" "p" "r" "n" "d" "f" "u" "h" "a" "s" "q"
+		elif [ "$i" -gt "1" ] && [ "$i" -le "$((${#list}/8))" ]; then
+			answer "$REPLY" "p" "w" "n" "d" "f" "u" "h" "a" "s" "q" && [ "$REPLY" = "w" ] && REPLY="r"
+		elif [ "$replay" = "1" ]; then
+			answer "$REPLY" "r" "n" "d" "f" "h" "u" "a" "s" "q" "q"
+		else
+			answer "$REPLY" "w" "n" "d" "f" "h" "u" "a" "s" "q" "q" && [ "$REPLY" = "w" ] && REPLY="r"
+		fi
+	fi
+
+	[ "$loop" = "1" ] && [ "$REPLY" = "p" ] && previous=1
+	case "$REPLY" in
+		r) cleaning && watch
+		;;
+		d) cleaning && download
+		;;
+		f) cleaning && formating
+		;;
+		u) unset replay && url_ask && cleaning && big_prompt
+		;;
+		h) hist && big_prompt
+		;;
+		a) url_check && add_favourite && big_prompt
+		;;
+		s) search && big_prompt
+		;;
+		q) bye
+		;;
+		p) [ -z "$Previous" ] && die
+		;;
+		n)
+		;;
+		*) die
+		;;
+	esac
 
 }
+######################LOOP############################
 
-
-Loop () {
-	
+loop_playlist () {
+	#belongs to "p" and "P" option
 	i=1
 	current="Invalid loop args"
-	positions="$( printf "%s" "$list" | awk -F"," '{print NF }')"
-	#echo "$positions"
-	file_loop_temp=$( mktemp -p ${dir_temp} ${name}-loop-cache.XXXXXXXXXX )
-	[ "$menu" = "1" ] && loop_fzf
+	positions="$( printf "%s" "$list" | awk -F "," '{print NF }')"
+	#entries in that file are being stored in that pattern
+	#"ID..      -        "title"" or just "ID"
+	loop_arg
 	while [ -n "$current" ]; do
-		#echo "a:$previous:a"
-		#echo "a:$previus check"
 		unset current
-		[ ! "$previous" = "1" ] && [ "$i" -gt "$positions" ] && [ ! "$menu" = "1" ] && break
+		[ ! "$previous" = "1" ] && [ "$i" -gt "$positions" ] && [ ! "$menu" = "1" ] && divider && break
 		[ "$previous" = "1" ] && i="$((i-2))"
-		[ "$menu" = "1" ] && current="$(tac "$file_loop_temp" | menu_select "Playlist:" "$((positions))" | sed "s/ - .*//" )"
-		if [ -z "$current" ]; then
-		current="$( printf "$list" | tr ',' '\n' | awk -v "i=$i" '{ list[NR]= $0 } END { print list[i] }' )"
-		[ ! "$previous" = "1" ] && [ "$i" -gt "$positions" ] && break
+		[ "$menu" = "1" ] && current="$( cat "$file_loop_temp" | sed "$ s/$/\nQuit/" | menu_select "Playlist:" "$((positions+1))" | sed "s/..      -        .*//" )"
+		[ "$current" = "Quit" ] && break
+		if ! grep "$current" "$file_loop_temp"; then #invalid menu choice
+			unset current
+		fi
+		if [ -n "$current" ]; then
+			no_miss=1 # if choice was valid
+		else
+			current="$( sed "$i ! d; s/..      -        .*//" "$file_loop_temp" )" #standard behaviour
+			[ ! "$previous" = "1" ] && [ "$i" -gt "$positions" ] && divider &&  break
 		fi
 		diff="$( printf "%s" "$current" | cut -c1,2 )"
-		echo "a:$diff"
 		case "$diff" in
 			sm|so|nm)
 			;;
-			*)
-			url_type "$current"
-			new_entry="$( printf "%s" "$list" | tr ',' '\n' | awk -v "diff=$diff" -v "i=$i" '{ list[NR]= $0 } END { print diff list[i] }' )"
-			list="$( printf "%s" "$list" | sed "s/$current/$new_entry/" )"
-			current="$new_entry"
+			*) diff_loop
 			;;
 		esac
-		if [ "$menu" = "1" ]; then
-		storage="$( grep "$current - " "$file_loop_temp")" && echo "grep works"
-		else
-		storage="$( grep "$current" "$file_loop_temp")"
-		fi
-		[ -n "$storage" ] && title="${storage##* - }" && got_title=1
-		echo ":a$storage"
-		echo "a:${yellow}$title"
-		url_make "$current"
+		storage="$( grep "$current        -        " "$file_loop_temp")" #check whether title is already supplied
+		[ -n "$storage" ] && title="${storage##*        -        }" && got_title=1
+		url_make "$current" 
 		id_numbers="${current##*$diff}"
-		id_numbers="${id_numbers%% *}"
-		echo "$id_numbers"
-		echo "${red}$storage"
-		#echo "$diff"
 		printf "${magenta}"
-		echo "$current"
-		#echo "$new_entry"
-		echo "$list"
 		[ "$previous" = "1" ] && unset previous
 		url_check
-		[ -z "$storage" ] && if ! grep -x "$current" "$file_loop_temp"; then
-		printf "%s\n" "${current} - ${title}" >> "$file_loop_temp"
-		else
-		sed -i -E "s|$current|$current - ${title}|" "$file_loop_temp"
+		[ -z "$storage" ] && if grep -x -q "$current" "$file_loop_temp"; then
+			sed -i -E "s|$current|$current        -        ${title}|" "$file_loop_temp"
 		fi
+		##############################
 		cleaning
 		if [ ! "$non_stop" = "1" ]; then
-		big_prompt
+			big_prompt
 		else
-		prompt_answer="w"
-		prompt_operation watch format download hist search
+			prompt_answer="w"
+			prompt_operation watch formating download hist search
 		fi
+		cleaning
 		unset got_title
 		unset replay
-		unset format_change
-		unset nicov_history
-		unset favourite_add
 		unset prompt_big
 		i="$((i+=1))"
 	done
+	unset diff
+	unset non_stop
+	unset loop
 }
 
-loop_fzf () {
-	file_loop_temp=$( mktemp -p ${dir_temp} ${name}-loop-cache.XXXXXXXXXX )
-	positions="$( printf "%s" "$list" | awk -F"," '{print NF }')"
+diff_loop () {
+	#belong to loop_playlist, ads missing diffs to list of videos
+	url_type "$current"
+	if [ "$menu" = "1" ] && [ "$no_miss" = "1" ]; then
+		line="$( grep -n "$current" "$file_loop_temp" )"
+		line="${line%%:*}"
+		sed -i "$line s/^/$diff/" "$file_loop_temp"
+		new_entry="$( sed "$line ! d; s/..      -        .*//" "$file_loop_temp" )"
+	else
+		sed -i "$i s/^/$diff/" "$file_loop_temp"
+		new_entry="$( sed "$i ! d; s/..      -        .*//" "$file_loop_temp" )"
+	fi
+	list="$( printf "%s" "$list" | sed "s/$current/$new_entry/" )"
+	current="$new_entry"
+}
+
+
+loop_arg () {
+	#print list to temp
 	j=1
 	while [ "$j" -le "$positions" ]; do
-	printf "$list" | tr ',' '\n' | awk '{ list[NR]= $0 } END { i=NR; while ( i > 0) { print list[i]; i = i - 1 } }' > "$file_loop_temp"
-	j=$((j+1))
+		printf "$list" | tr ',' '\n' | awk '{ list[NR]= $0 } END { for (element in list) { print list[element] } }' > "$file_loop_temp"
+		j=$((j+1))
 	done
-
 }
 
+menu_list () {
+	#belongs tp "P" option, selects entries from history to make list
+	case $type_menu_select in
+		1) # sed -z ..., because list need to be a string without newlines, which are given by fzf -m
+		list="$( tac "$file_history" | fzf -m --reverse --prompt "History:" | sed "s/^.*\[//; s/\].*//; s/$/,/; $ s/,//" | sed -z "s/\n//g" )"
+		;;
+		2) lines="$(uniq $file_history | wc -l)"
+		#dmenu don't have options for multi-select like fzf
+		while [ : ]; do
+			get_entry="$( tac "$file_history" | sed "$ s/$/\nContinue/" | dmenu -p "History:" -l "$((lines+1))" -i | sed "s/^.*\[//; s/\].*//" )"
+			[ "$get_entry" = "q" ] && bye
+			if [ "$get_entry" = "c" ] || [ "$get_entry" = "Continue" ]; then
+			list="$( printf "$list" | sed "s/,//" )" #before return 0 removing first ",",that and adding "," before entry was to eliminate empty field later in awk
+			return 0
+			fi
+			if ! grep -q "$get_entry" "$file_history"; then
+			list="$( printf "$list" | sed "s/,//" )"
+			return 0 #if dmenu gives invalid choice
+			fi
+			get_entry="$( printf "$get_entry" | sed "s/^/,/" )" #adding "," before every entry
+			list="$( printf "${list}${get_entry}" )"
+		done
+		;;
+		*) printf "${magenta}Menus:\nfzf[1]\ndmenu[2]\n"
+		die
+		;;
+	esac
+}
+
+########################ENTRY_DELETE##############################
 delete_entry () {
-cleaning
-while read -r hist; do
-	printf "${white}%s\n" "$hist"
-done < "$file_history"
-[ ! -s "$file_history" ] && printf "${magenta}There is nothing here\n" && exiting 0
-printf "${magenta}Which one to delete?\n"
-printf "> " && read -r REPLY
-case "$REPLY" in
-	''|*[!0-9]*|0) die
-	;;
-	*)
-	lines="$(uniq $file_history | wc -l)"
-	[ "$REPLY" -gt "$lines" ] && printf "There is no such entry\n" && exiting 0
-	sed "$REPLY d" "$file_history" > "$file_history_temp" && cat "$file_history_temp" > "$file_history" && : > "$file_history_temp"
-	switching_loop="$(($lines+1))"
-	while [ "$switching_loop" -gt "$REPLY" ]; do
-		####echo "aaaaa"
-		sed "0,/$switching_loop =/ s//$((switching_loop-1)) =/" "$file_history" > "$file_history_temp" && cat "$file_history_temp" > "$file_history" && : > "$file_history_temp"
-		####echo "a:$((switching_loop-1)):$lines:a"
-		switching_loop="$((switching_loop-=1))"
-	done
-	printf "Entry deleted\n"
-	;;
-esac
+	#belongs to "d" option
+	cleaning
+	while read -r hist; do
+		printf "${white}%s\n" "$hist"
+	done < "$file_history"
+	[ ! -s "$file_history" ] && printf "${magenta}There is nothing here\n" && exiting "0"
+	printf "${magenta}Which one to delete?\n"
+	printf "> " && read -r REPLY
+	case "$REPLY" in
+		''|*[!0-9]*|0) die
+		;;
+		*)
+		lines="$(uniq $file_history | wc -l)"
+		[ "$REPLY" -gt "$lines" ] && printf "There is no such entry\n" && exiting "0"
+		sed "$REPLY d" "$file_history" > "$file_history_temp" && cat "$file_history_temp" > "$file_history" && : > "$file_history_temp"
+		switching_loop="$(($lines+1))"
+		while [ "$switching_loop" -gt "$REPLY" ]; do
+			sed "0,/$switching_loop =/ s//$((switching_loop-1)) =/" "$file_history" > "$file_history_temp" && cat "$file_history_temp" > "$file_history" && : > "$file_history_temp"
+			switching_loop="$((switching_loop-=1))"
+		done
+		printf "Entry deleted\n"
+		;;
+	esac
+}
+#################BACKUP########################
+make_backup () {
+	#"b" option
+	file_history_backup="${backup_dir}/${name}-history-backup"
+	if ! grep "$file_history_backup" "$file_backup"; then
+		printf "%s\n" "$file_history_backup" >> "$file_backup"
+	fi
+	[ ! -d "${backup_dir}" ] && mkdir -p "${backup_dir}"
+	cat "$file_history" > "$file_history_backup" && printf "${magenta}History backed up\n"
 }
 
-make_backup () {
-file_history_backup="${backup_dir}/${name}-history-backup"
-echo "$backup_dir"
-echo "$file_history_backup"
-if ! grep "$file_history_backup" "$file_backup"; then
-	printf "%s\n" "$file_history_backup" >> "$file_backup"
-fi
-[ ! -d "${backup_dir}" ] && mkdir -p "${backup_dir}"
-cat "$file_history" > "$file_history_backup" && printf "${magenta}History backed up\n"
+check_backup () {
+	#"f" option
+	#checks if backups exist
+	cleaning
+	i=1
+	[ "$( wc -l "$file_backup" | cut -c1 )" -lt "1" ] && printf "${red}No backups found\n" && exiting "0"
+	backups="$( cat "$file_backup" | wc -l )"
+	while [ "$i" -le "$backups" ]; do
+		file="$( sed "1! d; s|\/\/|\/|" "$file_backup" )"
+		if [ -f "${file}" ]; then
+			printf "${magenta}Backups:\n"
+			while read -r backup; do
+				printf "${white}%s\n" "$backup"
+			done < "$file_backup"
+		fetch_backup
+		else
+			sed "1 d" "$file_backup" > "$file_history_temp" && cat "$file_history_temp" > "$file_backup"
+		fi
+		i="$((i+1))"
+	done
+	printf "${magenta}No backups were valid\n"
 }
 
 fetch_backup () {
-cleaning
-i=1
-[ "$( wc -l "$file_backup" | cut -c1 )" -lt "1" ] && printf "${red}No backups found\n" && exiting 0
-backups="$( wc -l "$file_backup" | sed "s/ .*//" )"
-while [ "$i" -le "$backups" ]; do
-	file="$( sed "1! d; s|\/\/|\/|" "$file_backup" )"
-	#echo "a:$file:a"
-	if [ -f "${file}" ]; then
-	printf "${magenta}Backups:\n"
-	while read -r backup; do
-		printf "${white}%s\n" "$backup"
-	done < "$file_backup"
-	ask_change_backup
-	else
-	sed "1 d" "$file_backup" > "$file_history_temp" && cat "$file_history_temp" > "$file_backup"
-	fi
-	i="$((i+1))"
-done
-printf "${magenta}No backups were valid\n"
-}
-
-ask_change_backup () {
+	#belongs to "f" option
+	#fetch backup
 	printf "${magenta}Replace history with backup (${file})?\n${cyan}Yes[y]?\n${yellow}Diff[d]?\n${cyan}No[n]?\n${magenta}> "
 	read -r REPLY
 	case $REPLY in
@@ -791,133 +804,141 @@ ask_change_backup () {
 		printf "Left:        $file_history\n"
 		printf "Right:        $file\n"
 		diff -y --suppress-common-lines "$file_history" "$file"
-		ask_change_backup
+		fetch_backup
 		;;
 		*)
 		;;
 	esac
 	bye
 }
-
+############################LINKS####################################
 handling_links () {
+	# "l" option
 	file_history_links=${dir}/${name}-history-links
 	[ ! -f "$file_history_links" ] && : > "$file_history_links"
-	Format="${white}Format[f]?\n"
-	cleaning
 	while [ : ] ; do
-	divider
-	if [ -n "$format" ];then
-	small_prompt watching_f formating_f downloading_f hist_link bye
-	else
-	small_prompt watching formating downloading hist_link bye
+		divider
+		if [ -n "$format" ];then
+			small_prompt watch_link_f formating downloading_f hist_link bye
+			else
+		small_prompt watch_link formating downloading hist_link bye
 	fi
 	[ -n "$URL" ] && printf "${magenta}$URL\n" && if ! grep -x "$URL" "$file_history_links" 1>/dev/null; then
-	printf "%s\n" "$URL" >> "$file_history_links" 
-	fi
+		printf "%s\n" "$URL" >> "$file_history_links" 
+		fi
+	cleaning
 	done
 }
 
+watch_link () {
+	yt-dlp -o - "$URL" | mpv -
+}
+watch_link_f () {
+	yt-dlp -f "$format" -o - "$URL" | mpv -
+}
+
 small_prompt () {
-printf "$Watch$Download$Format$Switch$History$Quit${magenta}"
-printf "> " && read -r REPLY
-[ "$clean" = "1" ] && divider
-case $REPLY in
-	w) [ -z "$URL" ] && link_ask
-	$1
-	;;
-	f) [ -z "$URL" ] && link_ask
-	$2
-	;;
-	d) [ -z "$URL" ] && link_ask
-	$3
-	;;
-	u) link_ask
-	;;
-	h) $4
-	;;
-	q) $5
-	;;
-	*) die
-	;;
-esac
+	#handling_links
+	[ -n "$URL" ] && printf "$URL\n" && divider
+	printf "$Watch$Download$Format$Switch$History$Quit${magenta}"
+	printf "> " && read -r REPLY
+	[ "$clean" = "1" ] && divider
+	case $REPLY in
+		w) [ -z "$URL" ] && link_ask || cleaning
+		$1
+		;;
+		f) [ -z "$URL" ] && link_ask || cleaning
+		$2
+		;;
+		d) [ -z "$URL" ] && link_ask || cleaning
+		$3
+		;;
+		u) link_ask
+		;;
+		h) $4
+		;;
+		q) $5
+		;;
+		*) die
+		;;
+	esac
 }
 
 link_ask () {
+	#handling_links 
+	##small_prompt
+	divider
 	printf "Link?\n> "
 	read -r URL
+	cleaning
 }
-
+	
 hist_link () {
-link_position=1
-while read -r REPLY; do
-	printf "${white}${link_position}) %s\n" "$REPLY"
-	link_position="$((link_position+1))"
-done < "$file_history_links"
-[ ! -s "$file_history_links" ] && printf "There is nothing here\n"
-printf "${yellow}Continue[c]?\n${blue}Delete[d]?\n${red}Quit[q]?\n${magenta}"
-printf "> " && read -r hist_link_opt
-case "$hist_link_opt" in
-	c) cleaning && return 0
-	;;
-	d) delete_link
-	;;
-	q) bye
-	;;
-	''|*[!0-9]*) die
-	;;
-	*) URL="$(sed "$hist_link_opt! d" "$file_history_links")"
-	;;
-esac
+	#handling_links 
+	##small_prompt
+	cleaning
+	link_position=1
+	while read -r REPLY; do
+		printf "${white}${link_position}) %s\n" "$REPLY"
+		link_position="$((link_position+1))"
+	done < "$file_history_links"
+	[ ! -s "$file_history_links" ] && printf "There is nothing here\n"
+	printf "${yellow}Continue[c]?\n${blue}Delete[d]?\n${red}Quit[q]?\n${magenta}"
+	printf "> " && read -r hist_link_opt
+	case "$hist_link_opt" in
+		c) cleaning && return 0
+		;;
+		d) delete_link
+		;;
+		q) bye
+		;;
+		''|*[!0-9]*) die
+		;;
+		*) URL="$(sed "$hist_link_opt! d" "$file_history_links")"
+		;;
+	esac
 }
-
+	
 delete_link () {
+	#handling_links 
+	##small_prompt
+	###hist_link
+	divider
 	printf "${magenta}Which one to delete?\n"
 	printf "> " && read -r REPLY
-	echo "$REPLY"
 	case "$REPLY" in
 		''|*[!0-9]*|0) die
 		;;
 		*) lines="$( uniq $file_history_links | wc -l)"
-		echo "$lines"
 		[ "$REPLY" -gt "$lines" ] && printf "There is no such entry\n" && cleaning && return 0
 		sed "$REPLY d" "$file_history_links" > "$file_history_temp" && cat "$file_history_temp" > "$file_history_links" && : > "$file_history_temp"
 		;;
 	esac
-}
-
-menu_select () {
-	
-	case $type_menu in
-		1) dep_check "fzf"
-		fzf +m --reverse --prompt "$1"
-		;;
-		2) dep_check "dmenu"
-		dmenu -p "$1" -l "$2" -i
-		;;
-		*) printf "${magenta}Menus:\nfzf[1]\ndmenu[2]\n"
-		die
-		;;
-	esac
+	cleaning
 }
 
 ###START!###
 
-dep_check "curl" "awk" "sed" "grep" "cat" "tac" "wc" "printf" "read" "sort" "uniq" "cut" "tr" "mkdir" "mktemp" "rm" "tee" "command" "nohup" "mpv" "yt-dlp"
+dep_check "curl" "awk" "sed" "grep" "cat" "tac" "wc" "printf" "read" "sort" "uniq" "cut" "tr" "diff" "mkdir" "mktemp" "rm" "command" "nohup" "mpv" "yt-dlp"
 # 
 # ###Options handling###
 # 
-while getopts 'p:cwbuf:dDsSlq:hV' OPT; do
+while getopts 'p:P:cwbfm:dDsSlq:hV' OPT; do
 	case $OPT in
 		h) die
 		;;
 		V) printf "${magenta}%s\n" "Version: $version"
-		exiting 0
-		;;
-		q) format="$OPTARG"
+		exiting "0"
 		;;
 		c) clean=1
 		;;
 		p) list="$OPTARG"
+		loop=1
+		;;
+		P) type_menu_select="$OPTARG"
+		menu_list
+		[ -z "$list" ] && die
+		menu_loop=1
 		loop=1
 		;;
 		s) search_result=1
@@ -926,28 +947,34 @@ while getopts 'p:cwbuf:dDsSlq:hV' OPT; do
 		;;
 		l) link=1
 		[ "$menu" = "1" ] && die
+		cleaning
 		handling_links
-		echo "kakakaka"
 		;;
 		w) non_stop=1
 		;;
 		b) backup_dir="${2:-$HOME/.local/share/}"
 		make_backup
-		exiting 0
+		exiting "0"
 		;;
-		u) fetch_backup
+		f) check_backup
 		[ "$menu" = "1" ] && die
-		exiting 0
+		exiting "0"
 		;;
-		f) type_menu="$OPTARG"
+		m) type_menu="$OPTARG"
+		case $type_menu in
+			1|2)
+			;;
+			*) die
+			;;
+		esac
 		menu=1
 		;;
 		d) delete_entry
 		[ "$menu" = "1" ] && die
-		exiting 0
+		exiting "0"
 		;;
 		D) [ -f "$file_history" ] && rm "$file_history" && printf "${magenta}History deleted\n"
-		exiting 0
+		exiting "0"
 		;;
 		*) die
 		;;
@@ -956,16 +983,32 @@ done
 
 [ "$non_stop" = "1" ] && [ ! "$loop" = "1" ] &&  printf "${magenta}\nWorks only with \"p\" option\n" && die
 
-list="$(printf "%s" "$list" | sed "s/\[//g; s/\]//g; s/\://g; s/\*//g")"
-#echo "a:$list:a"
+#removing some not ID characters and "," at end to eliminate empty field in awk later
+list="$(printf "%s" "$list" | sed "s/\[//g; s/\]//g; s/\://g; s/\*//g; s/,$//")"
 ######################
 
 cleaning
-[ "$loop" = "1" ] && Loop && cleaning
-unset diff
-unset non_stop
-unset loop
+[ "$loop" = "1" ] && loop_playlist && cleaning
 prompt url_ask url_ask url_ask hist search
-[ ! "$big_prompt" = "1" ] && prompt_operation watch format download hist search
+[ ! "$big_prompt" = "1" ] && prompt_operation watch formating download hist search
 bye
 ###END!###
+
+# nicov-cli
+# Copyright (C) 2023  "meowowner"
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Available repository:
+# https://www.github.com/meowowner/nicov-cli
