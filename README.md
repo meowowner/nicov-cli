@@ -1,5 +1,6 @@
-# nicov-cli
-A cli tool around yt-dlp to interact with nicovideo.jp website
+# Nicov-cli
+
+A cli tool around yt-dlp to interact with nicovideo.jp website.
 
 ## Install
 ```
