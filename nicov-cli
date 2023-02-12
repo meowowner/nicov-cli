@@ -632,7 +632,7 @@ loop_playlist () {
 		[ "$previous" = "1" ] && i="$((i-2))"
 		[ "$menu" = "1" ] && current="$( cat "$file_loop_temp" | sed "$ s/$/\nQuit/" | menu_select "Playlist:" "$((positions+1))" | sed "s/..      -        .*//" )"
 		[ "$current" = "Quit" ] && break
-		if ! grep "$current" "$file_loop_temp"; then #invalid menu choice
+		if ! grep -q "$current" "$file_loop_temp"; then #invalid menu choice
 			unset current
 		fi
 		if [ -n "$current" ]; then
@@ -707,9 +707,12 @@ menu_list () {
 	#belongs tp "P" option, selects entries from history to make list
 	case $type_menu_select in
 		1) # sed -z ..., because list need to be a string without newlines, which are given by fzf -m
+		dep_check "fzf"
 		list="$( tac "$file_history" | fzf -m --reverse --prompt "History:" | sed "s/^.*\[//; s/\].*//; s/$/,/; $ s/,//" | sed -z "s/\n//g" )"
 		;;
-		2) lines="$(uniq $file_history | wc -l)"
+		2)
+		dep_check "dmenu"
+		lines="$(uniq $file_history | wc -l)"
 		#dmenu don't have options for multi-select like fzf
 		while [ : ]; do
 			get_entry="$( tac "$file_history" | sed "$ s/$/\nContinue/" | dmenu -p "History:" -l "$((lines+1))" -i | sed "s/^.*\[//; s/\].*//" )"
@@ -962,7 +965,9 @@ while getopts 'p:P:cwbfm:dDsSlq:hV' OPT; do
 		;;
 		m) type_menu="$OPTARG"
 		case $type_menu in
-			1|2)
+			1) dep_check "fzf"
+			;;
+			2) dep_check "dmenu"
 			;;
 			*) die
 			;;
